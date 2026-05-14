@@ -13,7 +13,11 @@ from sklearn.metrics import (
 )
 
 from sklearn.decomposition import PCA
-import umap
+try:
+    import umap
+    UMAP_AVAILABLE = True
+except:
+    UMAP_AVAILABLE = False
 
 # =========================================================
 # PAGE CONFIG
@@ -305,6 +309,11 @@ elif option == "Upload CSV":
                 ax.set_title("PCA Projection")
 
                 st.pyplot(fig)
+
+                if UMAP_AVAILABLE:
+    # run UMAP
+else:
+    st.warning("UMAP is not installed.")
 
                 # =============================================
                 # UMAP VISUALIZATION
