@@ -40,9 +40,13 @@ st.set_page_config(
 
 try:
 
-    model = pickle.load(open("model.pkl", "rb"))
-    scaler = pickle.load(open("scaler.pkl", "rb"))
-    top_genes = pickle.load(open("top_genes.pkl", "rb"))
+    model = pickle.load(
+        open("models/cancer_model.pkl", "rb")
+    )
+
+    top_genes = pickle.load(
+        open("models/selected_features.pkl", "rb")
+    )
 
 except Exception as e:
 
@@ -73,11 +77,9 @@ option = st.sidebar.selectbox(
 
 def predict(data):
 
-    data_scaled = scaler.transform(data)
+    pred = model.predict(data)
 
-    pred = model.predict(data_scaled)
-
-    prob = model.predict_proba(data_scaled)
+    prob = model.predict_proba(data)
 
     return pred, prob
 
@@ -91,7 +93,10 @@ if option == "Sample Input":
 
     if st.button("Run Sample Prediction"):
 
-        sample = np.random.rand(1, len(top_genes))
+        sample = pd.DataFrame(
+            np.random.rand(1, len(top_genes)),
+            columns=top_genes
+        )
 
         pred, prob = predict(sample)
 
@@ -130,9 +135,7 @@ elif option == "Upload CSV":
             st.write("## Dataset Preview")
             st.dataframe(df.head())
 
-            original_shape = df.shape
-
-            st.info(f"Original Shape: {original_shape}")
+            st.info(f"Dataset Shape: {df.shape}")
 
             # =================================================
             # CLEAN COLUMN NAMES
@@ -193,8 +196,8 @@ elif option == "Upload CSV":
                 if gene in df.columns
             ]
 
-            st.write(
-                f"✅ Matching Features Found: "
+            st.success(
+                f"Matching Features Found: "
                 f"{len(matching_features)}"
             )
 
@@ -206,8 +209,8 @@ elif option == "Upload CSV":
 
                 st.error(
                     "❌ Very few matching genes found.\n\n"
-                    "Please upload a compatible molecular "
-                    "omics/proteomics dataset."
+                    "Please upload a compatible "
+                    "molecular dataset."
                 )
 
                 st.stop()
@@ -219,7 +222,7 @@ elif option == "Upload CSV":
             df_model = df[matching_features].copy()
 
             # =================================================
-            # ADD MISSING FEATURES AS ZERO
+            # ADD MISSING FEATURES
             # =================================================
 
             missing_features = list(
@@ -299,11 +302,9 @@ elif option == "Upload CSV":
 
                 st.write("## PCA Visualization")
 
-                scaled_data = scaler.transform(df_model)
-
                 pca = PCA(n_components=2)
 
-                reduced = pca.fit_transform(scaled_data)
+                reduced = pca.fit_transform(df_model)
 
                 fig, ax = plt.subplots()
 
@@ -324,10 +325,12 @@ elif option == "Upload CSV":
 
                 if UMAP_AVAILABLE:
 
-                    reducer = umap.UMAP(random_state=42)
+                    reducer = umap.UMAP(
+                        random_state=42
+                    )
 
                     embedding = reducer.fit_transform(
-                        scaled_data
+                        df_model
                     )
 
                     fig, ax = plt.subplots()
@@ -343,7 +346,9 @@ elif option == "Upload CSV":
 
                 else:
 
-                    st.warning("UMAP is not installed.")
+                    st.warning(
+                        "UMAP is not installed."
+                    )
 
         except Exception as e:
 
@@ -400,7 +405,11 @@ if st.button("Show Demo ROC Curve"):
         label=f"AUC = {roc_auc:.2f}"
     )
 
-    ax.plot([0, 1], [0, 1], linestyle="--")
+    ax.plot(
+        [0, 1],
+        [0, 1],
+        linestyle="--"
+    )
 
     ax.set_title("ROC Curve")
 
