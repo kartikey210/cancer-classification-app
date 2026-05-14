@@ -310,38 +310,35 @@ elif option == "Upload CSV":
 
                 st.pyplot(fig)
 
-                if UMAP_AVAILABLE:
-    # run UMAP
+
+              # =============================================
+# UMAP VISUALIZATION
+# =============================================
+
+st.write("## UMAP Visualization")
+
+if UMAP_AVAILABLE:
+
+    reducer = umap.UMAP(random_state=42)
+
+    embedding = reducer.fit_transform(
+        scaled_data
+    )
+
+    fig, ax = plt.subplots()
+
+    ax.scatter(
+        embedding[:, 0],
+        embedding[:, 1]
+    )
+
+    ax.set_title("UMAP Projection")
+
+    st.pyplot(fig)
+
 else:
+
     st.warning("UMAP is not installed.")
-
-                # =============================================
-                # UMAP VISUALIZATION
-                # =============================================
-
-                st.write("## UMAP Visualization")
-
-                reducer = umap.UMAP(random_state=42)
-
-                embedding = reducer.fit_transform(
-                    scaled_data
-                )
-
-                fig, ax = plt.subplots()
-
-                ax.scatter(
-                    embedding[:, 0],
-                    embedding[:, 1]
-                )
-
-                ax.set_title("UMAP Projection")
-
-                st.pyplot(fig)
-
-        except Exception as e:
-
-            st.error(f"❌ Processing Error: {e}")
-
 # =========================================================
 # DEMO CONFUSION MATRIX
 # =========================================================
