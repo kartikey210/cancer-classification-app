@@ -13,9 +13,15 @@ from sklearn.metrics import (
 )
 
 from sklearn.decomposition import PCA
+
+# =========================================================
+# OPTIONAL UMAP IMPORT
+# =========================================================
+
 try:
     import umap
     UMAP_AVAILABLE = True
+
 except:
     UMAP_AVAILABLE = False
 
@@ -33,11 +39,13 @@ st.set_page_config(
 # =========================================================
 
 try:
+
     model = pickle.load(open("model.pkl", "rb"))
     scaler = pickle.load(open("scaler.pkl", "rb"))
     top_genes = pickle.load(open("top_genes.pkl", "rb"))
 
 except Exception as e:
+
     st.error(f"❌ Error loading model files: {e}")
     st.stop()
 
@@ -162,9 +170,6 @@ elif option == "Upload CSV":
             # AUTOMATIC TRANSPOSE DETECTION
             # =================================================
 
-            # If rows are much larger than columns,
-            # dataset is likely gene-oriented
-
             if df.shape[0] > df.shape[1]:
 
                 st.warning(
@@ -222,6 +227,7 @@ elif option == "Upload CSV":
             )
 
             for feature in missing_features:
+
                 df_model[feature] = 0
 
             # =================================================
@@ -301,7 +307,7 @@ elif option == "Upload CSV":
 
                 fig, ax = plt.subplots()
 
-                scatter = ax.scatter(
+                ax.scatter(
                     reduced[:, 0],
                     reduced[:, 1]
                 )
@@ -310,8 +316,7 @@ elif option == "Upload CSV":
 
                 st.pyplot(fig)
 
-
-                             # =============================================
+                # =============================================
                 # UMAP VISUALIZATION
                 # =============================================
 
@@ -339,6 +344,11 @@ elif option == "Upload CSV":
                 else:
 
                     st.warning("UMAP is not installed.")
+
+        except Exception as e:
+
+            st.error(f"❌ Processing Error: {e}")
+
 # =========================================================
 # DEMO CONFUSION MATRIX
 # =========================================================
