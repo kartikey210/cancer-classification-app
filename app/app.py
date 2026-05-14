@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import pickle
+import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -40,12 +40,12 @@ st.set_page_config(
 
 try:
 
-    model = pickle.load(
-        open("models/cancer_model.pkl", "rb")
+    model = joblib.load(
+        "models/cancer_model.pkl"
     )
 
-    top_genes = pickle.load(
-        open("models/selected_features.pkl", "rb")
+    top_genes = joblib.load(
+        "models/selected_features.pkl"
     )
 
 except Exception as e:
