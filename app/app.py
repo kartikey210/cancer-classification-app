@@ -1,83 +1,104 @@
 import streamlit as st
 import pandas as pd
-import joblib
-import sys
-import os
+import numpy as np
+import pickle
 import matplotlib.pyplot as plt
 import seaborn as sns
-from PIL import Image
 
-# Metrics
 from sklearn.metrics import (
-    roc_curve,
-    auc,
     confusion_matrix,
-    precision_recall_curve
+    classification_report,
+    roc_curve,
+    auc
 )
 
-# Path fix
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from sklearn.decomposition import PCA
+import umap
 
-from src.preprocessing import load_and_preprocess
-from utils import get_top_features, apply_pca
-from image_model import predict_image
+# =========================================================
+# PAGE CONFIG
+# =========================================================
 
-# ---------------------------------------------------
-# Load model + features
-# ---------------------------------------------------
-model = joblib.load("models/cancer_model.pkl")
-selected_features = joblib.load("models/selected_features.pkl")
-
-# ---------------------------------------------------
-# Config
-# ---------------------------------------------------
-st.set_page_config(page_title="Cancer Classifier", layout="wide")
-
-# ---------------------------------------------------
-# Sidebar
-# ---------------------------------------------------
-st.sidebar.title("🧬 Navigation")
-option = st.sidebar.radio(
-    "Go to",
-    ["Home", "Upload Data", "Sample Data", "Image Prediction"]
+st.set_page_config(
+    page_title="Cancer Type Classification",
+    layout="wide"
 )
 
-# ---------------------------------------------------
-# Title
-# ---------------------------------------------------
-st.title("🧬 Cancer Classification System")
-st.markdown("### ML-based Molecular & Image Cancer Prediction")
+# =========================================================
+# LOAD MODEL FILES
+# =========================================================
 
-label_map = {
-    0: "Breast Cancer (TCGA)",
-    1: "Lung Cancer (CPTAC)"
-}
+try:
+    model = pickle.load(open("model.pkl", "rb"))
+    scaler = pickle.load(open("scaler.pkl", "rb"))
+    top_genes = pickle.load(open("top_genes.pkl", "rb"))
 
-# ===================================================
-# HOME
-# ===================================================
-if option == "Home":
+except Exception as e:
+    st.error(f"❌ Error loading model files: {e}")
+    st.stop()
 
-    st.write("## 📌 About Project")
+# =========================================================
+# TITLE
+# =========================================================
 
-    st.write("""
-    This system uses machine learning to classify cancer types
-    using molecular expression data and image inputs.
+st.title("🧬 Cancer Type Classification System")
+st.subheader("Breast Cancer (BRCA) vs Lung Cancer (LUAD)")
 
-    Features included:
-    - Molecular cancer prediction
-    - PCA visualization
-    - Feature importance analysis
-    - ROC analysis
-    - Image-based prediction
-    """)
+# =========================================================
+# SIDEBAR
+# =========================================================
 
-# ===================================================
-# UPLOAD DATA
-# ===================================================
-elif option == "Upload Data":
+st.sidebar.header("Controls")
 
-    st.header("📂 Upload Dataset")
+option = st.sidebar.selectbox(
+    "Choose Input Method",
+    ["Sample Input", "Upload CSV"]
+)
+
+# =========================================================
+# PREDICTION FUNCTION
+# =========================================================
+
+def predict(data):
+
+    data_scaled = scaler.transform(data)
+
+    pred = model.predict(data_scaled)
+
+    prob = model.predict_proba(data_scaled)
+
+    return pred, prob
+
+# =========================================================
+# SAMPLE INPUT
+# =========================================================
+
+if option == "Sample Input":
+
+    st.write("Run prediction using randomly generated sample data.")
+
+    if st.button("Run Sample Prediction"):
+
+        sample = np.random.rand(1, len(top_genes))
+
+        pred, prob = predict(sample)
+
+        result = (
+            "BRCA (Breast Cancer)"
+            if pred[0] == 0
+            else "LUAD (Lung Cancer)"
+        )
+
+        confidence = np.max(prob) * 100
+
+        st.success(f"Prediction: {result}")
+        st.info(f"Confidence: {confidence:.2f}%")
+
+# =========================================================
+# CSV UPLOAD
+# =========================================================
+
+elif option == "Upload CSV":
 
     uploaded_file = st.file_uploader(
         "Upload CSV File",
@@ -87,365 +108,303 @@ elif option == "Upload Data":
     if uploaded_file is not None:
 
         try:
-            # ---------------------------------------------------
-            # Load CSV
-            # ---------------------------------------------------
-            raw_df = pd.read_csv(uploaded_file)
 
-            st.write("### Dataset Preview")
-            st.dataframe(raw_df.head())
+            # =================================================
+            # LOAD CSV
+            # =================================================
 
-            if st.button("🔍 Predict"):
+            df = pd.read_csv(uploaded_file)
 
-                df = raw_df.copy()
+            st.write("## Dataset Preview")
+            st.dataframe(df.head())
 
-                # ---------------------------------------------------
-                # Flexible preprocessing
-                # ---------------------------------------------------
+            original_shape = df.shape
 
-                # Remove optional metadata columns
-                df = df.drop(
-                    columns=[
-                        "RefSeq_accession_number",
-                        "gene_name"
-                    ],
-                    errors='ignore'
-                )
+            st.info(f"Original Shape: {original_shape}")
 
-                # ---------------------------------------------------
-                # If molecular dataset with gene_symbol
-                # ---------------------------------------------------
-                if "gene_symbol" in df.columns:
+            # =================================================
+            # CLEAN COLUMN NAMES
+            # =================================================
 
-                    df = df.dropna(subset=["gene_symbol"])
+            df.columns = df.columns.astype(str)
 
-                    df = df.drop_duplicates(
-                        subset=["gene_symbol"]
-                    )
-
-                    df = df.set_index("gene_symbol")
-
-                    # transpose
-                    df = df.T
-
-                    df.reset_index(inplace=True)
-
-                    df.rename(
-                        columns={"index": "sample_id"},
-                        inplace=True
-                    )
-
-                # ---------------------------------------------------
-                # Generic tabular dataset
-                # ---------------------------------------------------
-                else:
-
-                    df.reset_index(inplace=True)
-
-                    df.rename(
-                        columns={"index": "sample_id"},
-                        inplace=True
-                    )
-
-                # Fill missing values
-                df = df.fillna(0)
-
-                # ---------------------------------------------------
-                # Feature alignment
-                # ---------------------------------------------------
-                X = df.drop(
-                    columns=["sample_id"],
-                    errors='ignore'
-                )
-
-                # Match available features only
-                matching_features = [
-                    f for f in selected_features
-                    if f in X.columns
-                ]
-
-                if len(matching_features) == 0:
-
-                    st.error(
-                        "❌ No matching features found between uploaded dataset and trained model."
-                    )
-
-                    st.stop()
-
-                X = X.reindex(
-                    columns=matching_features,
-                    fill_value=0
-                )
-
-                # ---------------------------------------------------
-                # Select first sample
-                # ---------------------------------------------------
-                sample = X.iloc[[0]]
-
-                # ---------------------------------------------------
-                # Prediction
-                # ---------------------------------------------------
-                prediction = model.predict(sample)[0]
-
-                probability = model.predict_proba(sample)[0]
-
-                # ---------------------------------------------------
-                # Result
-                # ---------------------------------------------------
-                st.success(
-                    f"Prediction: {label_map.get(prediction, prediction)}"
-                )
-
-                # ---------------------------------------------------
-                # Confidence + Probability
-                # ---------------------------------------------------
-                col1, col2 = st.columns(2)
-
-                with col1:
-
-                    st.subheader("📊 Confidence")
-
-                    confidence = float(max(probability))
-
-                    st.progress(confidence)
-
-                    st.write(f"{confidence:.2f}")
-
-                with col2:
-
-                    st.subheader("📈 Probability")
-
-                    fig, ax = plt.subplots()
-
-                    labels = [
-                        "Breast",
-                        "Lung"
-                    ]
-
-                    colors = [
-                        "#4CAF50",
-                        "#FF5733"
-                    ]
-
-                    ax.bar(
-                        labels,
-                        probability,
-                        color=colors
-                    )
-
-                    for i, v in enumerate(probability):
-
-                        ax.text(
-                            i,
-                            v + 0.01,
-                            f"{v:.2f}",
-                            ha='center'
-                        )
-
-                    st.pyplot(fig)
-
-                # ---------------------------------------------------
-                # Feature Importance
-                # ---------------------------------------------------
-                st.subheader("🔬 Top Important Features")
-
-                try:
-
-                    top_features = get_top_features(
-                        model,
-                        matching_features
-                    )
-
-                    st.dataframe(top_features.head(10))
-
-                    fig, ax = plt.subplots(figsize=(8, 5))
-
-                    sns.barplot(
-                        x="importance",
-                        y="feature",
-                        data=top_features.head(10),
-                        ax=ax
-                    )
-
-                    st.pyplot(fig)
-
-                except Exception as e:
-
-                    st.warning(
-                        f"Feature importance unavailable: {e}"
-                    )
-
-                # ---------------------------------------------------
-                # PCA Visualization
-                # ---------------------------------------------------
-                st.subheader("📊 PCA Visualization")
-
-                try:
-
-                    pca_df = apply_pca(X)
-
-                    fig, ax = plt.subplots(figsize=(7, 5))
-
-                    ax.scatter(
-                        pca_df["PC1"],
-                        pca_df["PC2"],
-                        alpha=0.6
-                    )
-
-                    if len(pca_df) > 0:
-
-                        ax.scatter(
-                            pca_df["PC1"].iloc[0],
-                            pca_df["PC2"].iloc[0],
-                            color="red",
-                            label="Selected Sample"
-                        )
-
-                    ax.set_xlabel("PC1")
-                    ax.set_ylabel("PC2")
-
-                    ax.legend()
-
-                    st.pyplot(fig)
-
-                except Exception as e:
-
-                    st.warning(f"PCA failed: {e}")
-
-        except Exception as e:
-
-            st.error(f"Processing Error: {e}")
-
-# ===================================================
-# SAMPLE DATA / MODEL EVALUATION
-# ===================================================
-elif option == "Sample Data":
-
-    st.header("🧪 Model Evaluation")
-
-    if st.button("Run Evaluation"):
-
-        try:
-
-            # ---------------------------------------------------
-            # Load sample evaluation dataset
-            # ---------------------------------------------------
-            df = load_and_preprocess(
-                "data/raw/proteomics.csv"
-            )
-
-            X = df.drop(
-                columns=["sample_id", "label"],
-                errors='ignore'
-            )
-
-            y = df["label"]
-
-            # ---------------------------------------------------
-            # Match features
-            # ---------------------------------------------------
-            matching_features = [
-                f for f in selected_features
-                if f in X.columns
+            df.columns = [
+                col.strip()
+                for col in df.columns
             ]
 
-            X = X.reindex(
-                columns=matching_features,
-                fill_value=0
+            # =================================================
+            # REMOVE COMMON NON-FEATURE COLUMNS
+            # =================================================
+
+            remove_cols = [
+                "sample_id",
+                "gene_symbol",
+                "gene_name",
+                "id",
+                "Unnamed: 0",
+                "index"
+            ]
+
+            df = df.drop(
+                columns=[
+                    c for c in remove_cols
+                    if c in df.columns
+                ],
+                errors="ignore"
             )
 
-            # ---------------------------------------------------
-            # Predictions
-            # ---------------------------------------------------
-            y_pred = model.predict(X)
+            # =================================================
+            # AUTOMATIC TRANSPOSE DETECTION
+            # =================================================
 
-            y_prob = model.predict_proba(X)[:, 1]
+            # If rows are much larger than columns,
+            # dataset is likely gene-oriented
 
-            st.success("✅ Evaluation Complete")
+            if df.shape[0] > df.shape[1]:
 
-            # ---------------------------------------------------
-            # ROC Curve
-            # ---------------------------------------------------
-            st.subheader("📈 ROC Curve")
+                st.warning(
+                    "Detected gene-oriented dataset. "
+                    "Automatically transposing..."
+                )
 
-            fpr, tpr, _ = roc_curve(y, y_prob)
+                first_col = df.columns[0]
 
-            roc_auc = auc(fpr, tpr)
+                df = df.set_index(first_col).T
 
-            fig, ax = plt.subplots()
+                df.reset_index(drop=True, inplace=True)
 
-            ax.plot(
-                fpr,
-                tpr,
-                label=f"AUC = {roc_auc:.2f}"
+            # =================================================
+            # FIND MATCHING FEATURES
+            # =================================================
+
+            matching_features = [
+                gene
+                for gene in top_genes
+                if gene in df.columns
+            ]
+
+            st.write(
+                f"✅ Matching Features Found: "
+                f"{len(matching_features)}"
             )
 
-            ax.plot(
-                [0, 1],
-                [0, 1],
-                linestyle='--'
+            # =================================================
+            # FEATURE CHECK
+            # =================================================
+
+            if len(matching_features) < 5:
+
+                st.error(
+                    "❌ Very few matching genes found.\n\n"
+                    "Please upload a compatible molecular "
+                    "omics/proteomics dataset."
+                )
+
+                st.stop()
+
+            # =================================================
+            # KEEP ONLY MATCHING FEATURES
+            # =================================================
+
+            df_model = df[matching_features].copy()
+
+            # =================================================
+            # ADD MISSING FEATURES AS ZERO
+            # =================================================
+
+            missing_features = list(
+                set(top_genes) - set(matching_features)
             )
 
-            ax.set_xlabel("False Positive Rate")
-            ax.set_ylabel("True Positive Rate")
+            for feature in missing_features:
+                df_model[feature] = 0
 
-            ax.legend()
+            # =================================================
+            # REORDER COLUMNS
+            # =================================================
 
-            st.pyplot(fig)
+            df_model = df_model[top_genes]
 
-            # ---------------------------------------------------
-            # Confusion Matrix
-            # ---------------------------------------------------
-            st.subheader("🧩 Confusion Matrix")
+            # =================================================
+            # HANDLE MISSING VALUES
+            # =================================================
 
-            cm = confusion_matrix(y, y_pred)
+            df_model = df_model.fillna(0)
 
-            fig, ax = plt.subplots()
+            # =================================================
+            # CONVERT TO NUMERIC
+            # =================================================
 
-            sns.heatmap(
-                cm,
-                annot=True,
-                fmt='d',
-                cmap='Blues',
-                ax=ax
+            df_model = df_model.apply(
+                pd.to_numeric,
+                errors="coerce"
             )
 
-            st.pyplot(fig)
+            df_model = df_model.fillna(0)
+
+            # =================================================
+            # PREDICT BUTTON
+            # =================================================
+
+            if st.button("Predict"):
+
+                pred, prob = predict(df_model)
+
+                results = pd.DataFrame()
+
+                results["Prediction"] = [
+                    "BRCA"
+                    if p == 0
+                    else "LUAD"
+                    for p in pred
+                ]
+
+                results["Confidence"] = np.max(
+                    prob,
+                    axis=1
+                )
+
+                st.write("## Prediction Results")
+                st.dataframe(results)
+
+                # =============================================
+                # CLASS DISTRIBUTION
+                # =============================================
+
+                fig, ax = plt.subplots()
+
+                results["Prediction"].value_counts().plot(
+                    kind="bar",
+                    ax=ax
+                )
+
+                ax.set_title("Prediction Distribution")
+
+                st.pyplot(fig)
+
+                # =============================================
+                # PCA VISUALIZATION
+                # =============================================
+
+                st.write("## PCA Visualization")
+
+                scaled_data = scaler.transform(df_model)
+
+                pca = PCA(n_components=2)
+
+                reduced = pca.fit_transform(scaled_data)
+
+                fig, ax = plt.subplots()
+
+                scatter = ax.scatter(
+                    reduced[:, 0],
+                    reduced[:, 1]
+                )
+
+                ax.set_title("PCA Projection")
+
+                st.pyplot(fig)
+
+                # =============================================
+                # UMAP VISUALIZATION
+                # =============================================
+
+                st.write("## UMAP Visualization")
+
+                reducer = umap.UMAP(random_state=42)
+
+                embedding = reducer.fit_transform(
+                    scaled_data
+                )
+
+                fig, ax = plt.subplots()
+
+                ax.scatter(
+                    embedding[:, 0],
+                    embedding[:, 1]
+                )
+
+                ax.set_title("UMAP Projection")
+
+                st.pyplot(fig)
 
         except Exception as e:
 
-            st.error(f"Evaluation Error: {e}")
+            st.error(f"❌ Processing Error: {e}")
 
-# ===================================================
-# IMAGE PREDICTION
-# ===================================================
-elif option == "Image Prediction":
+# =========================================================
+# DEMO CONFUSION MATRIX
+# =========================================================
 
-    st.header("🖼 Cancer Image Prediction")
+st.write("---")
+st.write("## Model Evaluation Demonstration")
 
-    image_file = st.file_uploader(
-        "Upload Image",
-        type=["png", "jpg", "jpeg"]
+if st.button("Show Demo Confusion Matrix"):
+
+    y_true = np.random.randint(0, 2, 100)
+
+    y_pred = np.random.randint(0, 2, 100)
+
+    cm = confusion_matrix(y_true, y_pred)
+
+    fig, ax = plt.subplots()
+
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        ax=ax
     )
 
-    if image_file is not None:
+    ax.set_title("Confusion Matrix")
 
-        image = Image.open(image_file)
+    st.pyplot(fig)
 
-        st.image(
-            image,
-            caption="Uploaded Image",
-            use_container_width=True
-        )
+# =========================================================
+# DEMO ROC CURVE
+# =========================================================
 
-        if st.button("Predict Image"):
+if st.button("Show Demo ROC Curve"):
 
-            try:
+    y_true = np.random.randint(0, 2, 100)
 
-                result = predict_image(image)
+    y_scores = np.random.rand(100)
 
-                st.success(f"Prediction: {result}")
+    fpr, tpr, _ = roc_curve(y_true, y_scores)
 
-            except Exception as e:
+    roc_auc = auc(fpr, tpr)
 
-                st.error(f"Image Prediction Error: {e}")
+    fig, ax = plt.subplots()
+
+    ax.plot(
+        fpr,
+        tpr,
+        label=f"AUC = {roc_auc:.2f}"
+    )
+
+    ax.plot([0, 1], [0, 1], linestyle="--")
+
+    ax.set_title("ROC Curve")
+
+    ax.legend()
+
+    st.pyplot(fig)
+
+# =========================================================
+# DEMO CLASSIFICATION REPORT
+# =========================================================
+
+if st.button("Show Demo Classification Report"):
+
+    y_true = np.random.randint(0, 2, 100)
+
+    y_pred = np.random.randint(0, 2, 100)
+
+    report = classification_report(
+        y_true,
+        y_pred
+    )
+
+    st.text(report)
