@@ -170,7 +170,7 @@ elif option == "Upload CSV":
             )
 
             # =================================================
-            # AUTOMATIC TRANSPOSE DETECTION
+            # AUTO TRANSPOSE DETECTION
             # =================================================
 
             if df.shape[0] > df.shape[1]:
@@ -257,6 +257,22 @@ elif option == "Upload CSV":
             df_model = df_model.fillna(0)
 
             # =================================================
+            # DATASET STATISTICS
+            # =================================================
+
+            st.write("## Dataset Statistics")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.metric("Samples", df_model.shape[0])
+                st.metric("Matched Genes", len(matching_features))
+
+            with col2:
+                st.metric("Features Used", df_model.shape[1])
+                st.metric("Missing Features Added", len(missing_features))
+
+            # =================================================
             # PREDICT BUTTON
             # =================================================
 
@@ -278,14 +294,40 @@ elif option == "Upload CSV":
                     axis=1
                 )
 
+                # =============================================
+                # RESULTS TABLE
+                # =============================================
+
                 st.write("## Prediction Results")
                 st.dataframe(results)
 
                 # =============================================
-                # CLASS DISTRIBUTION
+                # SUMMARY METRICS
                 # =============================================
 
-                fig, ax = plt.subplots()
+                brca_count = (
+                    results["Prediction"] == "BRCA"
+                ).sum()
+
+                luad_count = (
+                    results["Prediction"] == "LUAD"
+                ).sum()
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.metric("BRCA Samples", brca_count)
+
+                with col2:
+                    st.metric("LUAD Samples", luad_count)
+
+                # =============================================
+                # PREDICTION DISTRIBUTION
+                # =============================================
+
+                st.write("## Prediction Distribution")
+
+                fig, ax = plt.subplots(figsize=(8, 5))
 
                 results["Prediction"].value_counts().plot(
                     kind="bar",
@@ -293,6 +335,29 @@ elif option == "Upload CSV":
                 )
 
                 ax.set_title("Prediction Distribution")
+
+                st.pyplot(fig)
+
+                # =============================================
+                # CONFIDENCE HISTOGRAM
+                # =============================================
+
+                st.write("## Confidence Score Distribution")
+
+                fig, ax = plt.subplots(figsize=(8, 5))
+
+                ax.hist(
+                    results["Confidence"],
+                    bins=20
+                )
+
+                ax.set_title(
+                    "Confidence Distribution"
+                )
+
+                ax.set_xlabel("Confidence")
+
+                ax.set_ylabel("Frequency")
 
                 st.pyplot(fig)
 
@@ -306,14 +371,28 @@ elif option == "Upload CSV":
 
                 reduced = pca.fit_transform(df_model)
 
-                fig, ax = plt.subplots()
+                fig, ax = plt.subplots(figsize=(8, 6))
+
+                colors = [
+                    "blue"
+                    if p == "BRCA"
+                    else "red"
+                    for p in results["Prediction"]
+                ]
 
                 ax.scatter(
                     reduced[:, 0],
-                    reduced[:, 1]
+                    reduced[:, 1],
+                    c=colors
                 )
 
-                ax.set_title("PCA Projection")
+                ax.set_title(
+                    "PCA Projection of Samples"
+                )
+
+                ax.set_xlabel("PC1")
+
+                ax.set_ylabel("PC2")
 
                 st.pyplot(fig)
 
@@ -333,14 +412,19 @@ elif option == "Upload CSV":
                         df_model
                     )
 
-                    fig, ax = plt.subplots()
+                    fig, ax = plt.subplots(
+                        figsize=(8, 6)
+                    )
 
                     ax.scatter(
                         embedding[:, 0],
-                        embedding[:, 1]
+                        embedding[:, 1],
+                        c=colors
                     )
 
-                    ax.set_title("UMAP Projection")
+                    ax.set_title(
+                        "UMAP Projection"
+                    )
 
                     st.pyplot(fig)
 
@@ -350,16 +434,45 @@ elif option == "Upload CSV":
                         "UMAP is not installed."
                     )
 
+                # =============================================
+                # HEATMAP
+                # =============================================
+
+                st.write("## Gene Expression Heatmap")
+
+                fig, ax = plt.subplots(
+                    figsize=(12, 7)
+                )
+
+                sns.heatmap(
+                    df_model.iloc[
+                        :min(30, df_model.shape[0]),
+                        :min(30, df_model.shape[1])
+                    ],
+                    cmap="viridis",
+                    ax=ax
+                )
+
+                ax.set_title(
+                    "Gene Expression Heatmap"
+                )
+
+                st.pyplot(fig)
+
         except Exception as e:
 
             st.error(f"❌ Processing Error: {e}")
 
 # =========================================================
-# DEMO CONFUSION MATRIX
+# MODEL EVALUATION SECTION
 # =========================================================
 
 st.write("---")
-st.write("## Model Evaluation Demonstration")
+st.write("# Model Evaluation Demonstration")
+
+# =========================================================
+# CONFUSION MATRIX
+# =========================================================
 
 if st.button("Show Demo Confusion Matrix"):
 
@@ -369,7 +482,7 @@ if st.button("Show Demo Confusion Matrix"):
 
     cm = confusion_matrix(y_true, y_pred)
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(6, 5))
 
     sns.heatmap(
         cm,
@@ -384,7 +497,7 @@ if st.button("Show Demo Confusion Matrix"):
     st.pyplot(fig)
 
 # =========================================================
-# DEMO ROC CURVE
+# ROC CURVE
 # =========================================================
 
 if st.button("Show Demo ROC Curve"):
@@ -397,7 +510,7 @@ if st.button("Show Demo ROC Curve"):
 
     roc_auc = auc(fpr, tpr)
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(6, 5))
 
     ax.plot(
         fpr,
@@ -418,7 +531,7 @@ if st.button("Show Demo ROC Curve"):
     st.pyplot(fig)
 
 # =========================================================
-# DEMO CLASSIFICATION REPORT
+# CLASSIFICATION REPORT
 # =========================================================
 
 if st.button("Show Demo Classification Report"):
